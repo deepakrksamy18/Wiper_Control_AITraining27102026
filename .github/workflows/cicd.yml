@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: cicd-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   detect:
@@ -66,12 +66,6 @@ jobs:
           path: build/ctest-results.xml
           if-no-files-found: warn
 
-      - name: Upload compile database
-        uses: actions/upload-artifact@v4
-        with:
-          name: compile-commands
-          path: build/compile_commands.json
-
   static-analysis:
     name: Static analysis (clang-tidy, cppcheck)
     needs: [detect, build-test]
@@ -85,11 +79,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-tidy cppcheck
 
-      - name: Download compile database
-        uses: actions/download-artifact@v4
-        with:
-          name: compile-commands
-          path: build
+      - name: Configure (generates compile database)
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: clang-tidy (findings fail the job)
         shell: bash
@@ -136,6 +130,9 @@ jobs:
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
