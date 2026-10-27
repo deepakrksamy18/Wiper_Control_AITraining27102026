@@ -1,0 +1,174 @@
+name: cicd
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    name: Detect build inputs
+    runs-on: ubuntu-latest
+    outputs:
+      has_cmake: ${{ steps.check.outputs.has_cmake }}
+      has_src: ${{ steps.check.outputs.has_src }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        shell: bash
+        run: |
+          if [ -f CMakeLists.txt ]; then
+            echo "has_cmake=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_cmake=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No CMakeLists.txt at repository root; build, test, and code-scan jobs are skipped."
+          fi
+          if [ -d src ]; then
+            echo "has_src=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_src=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No src/ directory; static analysis jobs are skipped."
+          fi
+
+  build-test:
+    name: Build and unit test
+    needs: detect
+    if: needs.detect.outputs.has_cmake == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (host build, CMake + Ninja)
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Compile
+        run: cmake --build build
+
+      - name: Run unit tests (GoogleTest via CTest)
+        run: ctest --test-dir build --output-on-failure --output-junit ctest-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: build/ctest-results.xml
+          if-no-files-found: warn
+
+      - name: Upload compile database
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-commands
+          path: build/compile_commands.json
+
+  static-analysis:
+    name: Static analysis (clang-tidy, cppcheck)
+    needs: [detect, build-test]
+    if: needs.detect.outputs.has_cmake == 'true' && needs.detect.outputs.has_src == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install analyzers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy cppcheck
+
+      - name: Download compile database
+        uses: actions/download-artifact@v4
+        with:
+          name: compile-commands
+          path: build
+
+      - name: clang-tidy (findings fail the job)
+        shell: bash
+        run: |
+          files=$(find src -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \))
+          if [ -z "$files" ]; then
+            echo "::warning::No C++ sources under src/; clang-tidy skipped."
+            exit 0
+          fi
+          echo "$files" | xargs clang-tidy -p build --warnings-as-errors='*'
+
+      - name: cppcheck (findings fail the job)
+        run: >
+          cppcheck src
+          --enable=warning,style,performance,portability
+          --inline-suppr
+          --error-exitcode=1
+
+  codeql:
+    name: CodeQL
+    needs: [detect, build-test]
+    if: needs.detect.outputs.has_cmake == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: cpp
+          build-mode: manual
+
+      - name: Build for CodeQL
+        run: |
+          cmake -S . -B build-codeql -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-codeql
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:cpp
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Disabled until the MCU, toolchain, and linker/startup files are approved (PRD PR-024).
+  build-hex:
+    name: Build firmware hex (disabled)
+    needs: [build-test, static-analysis, codeql, secret-scan]
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (cross build)
+        run: >
+          cmake -S . -B build-fw -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE=TBD
+
+      - name: Build
+        run: cmake --build build-fw
+
+      - name: Convert to hex
+        run: TBD_OBJCOPY -O ihex build-fw/TBD_TARGET.elf build-fw/TBD_TARGET.hex
+
+      - name: Upload hex
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-hex
+          path: build-fw/*.hex
+          if-no-files-found: error
