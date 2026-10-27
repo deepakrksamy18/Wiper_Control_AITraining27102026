@@ -1,9 +1,9 @@
-# AGENT.md — Rain-Adaptive Wiper Control System
+# AGENTS.md — Rain-Adaptive Wiper Control System
 
 ## 1. Purpose and source of truth
 This file guides AI coding agents and engineers working on the Rain-Adaptive Wiper Control System.
 
-- Treat `wiper_control_system_product_requirements.md` as the product-level source of truth.
+- Treat `docs/wiper_control_system_product_requirements.md` as the product-level source of truth.
 - Preserve requirement IDs (`PR-xxx`) and verification IDs (`VV-xxx`) for traceability.
 - Do not silently invent or finalize values that the PRD marks `TBD`, says must be confirmed, or leaves as an open question.
 - If implementation decisions are needed for unspecified behavior, document the assumption, its rationale, risks, and approval needed before treating it as a requirement.
@@ -91,7 +91,7 @@ When modifying or adding code:
 2. Keep control logic deterministic and bounded in execution time.
 3. Separate input acquisition, validation/filtering, mode arbitration, rain-intensity mapping, limit enforcement, motor command generation, diagnostics, and platform I/O where practical.
 4. Keep calibration and variant data separate from control logic; validate it before use.
-5. Avoid blocking operations, unbounded loops, and dynamic allocation in the high-priority control path unless explicitly justified and approved.
+5. Do not use blocking operations, unbounded loops, or dynamic allocation in the high-priority control path (see Section 16).
 6. Use explicit units in names, interfaces, and documentation (for example, `period_ms`, `current_mA`, `temperature_C`).
 7. Handle invalid, stale, out-of-range, and unavailable inputs explicitly.
 8. Use safe initialization and defined reset behavior; initialize outputs so motor activation cannot occur unintentionally.
@@ -117,15 +117,15 @@ Use the PRD verification plan as the starting point. Ensure coverage for:
 Use unit tests for control logic, integration tests for hardware interfaces, fault-injection tests for failure handling, and target-hardware timing/thermal tests where required. Acceptance thresholds must come from approved requirements and calibration—not guesses.
 
 ## 11. Applicable standards and process framework
-The project is intended to be developed against the standards below. They are **targets for engineering review**, not claims of compliance. Do not state that the product, a work product, or a change "complies with" or "is certified to" any of them without approved assessment evidence.
+The standards below are **proposed, not approved**. The PRD leaves standards allocation open (PRD Q11), so Sections 12–17 are proposals pending engineering approval. Do not state that the product, a work product, or a change "complies with" or "is certified to" any of them without approved assessment evidence.
 
-| Area | Standard / framework | How it applies |
+| Area | Standard / framework (status: proposed, TBD) | How it applies |
 |---|---|---|
 | Functional safety | ISO 26262 (ASIL determined by hazard analysis) | Section 12 |
 | Cybersecurity | ISO/SAE 21434 | Section 13 |
 | Software updates | ISO 24089 | Section 14 |
 | Process and quality | Automotive SPICE (ASPICE) | Section 15 |
-| Secure coding | MISRA C / MISRA C++ | Section 16 |
+| Secure coding | MISRA C++ (edition TBD); implementation language is C++ | Section 16 |
 | Production engineering | Static analysis, traceability, fault injection, secure release management, human review | Section 17 |
 
 Regulatory context (for example UNECE R155 cybersecurity management and R156 software update management) may apply depending on market and vehicle type. Confirm with the project owner; do not assume.
@@ -185,13 +185,13 @@ Rules:
 - The target ASPICE capability level is **TBD**; do not claim an achieved level.
 - Keep work-product consistency: when requirements, design, code, or tests change, update the others in the same change set or record why not.
 
-## 16. Secure coding — MISRA C / C++
-- Use the MISRA guideline set approved for the project. The exact edition is **TBD** (for example MISRA C:2012 with amendments or MISRA C:2023 for C; MISRA C++:2023 for C++). Do not mix or assume editions without confirmation.
+## 16. Secure coding — MISRA C++ (proposed)
+- The implementation language is C++. Use the MISRA C++ guideline set approved for the project. The exact edition and C++ language standard are **TBD** (for example MISRA C++:2023). Do not assume editions without confirmation.
 - Treat Mandatory and Required rules as blocking. Advisory-rule violations need justification.
 - Every deviation must be recorded with rule ID, location, rationale, risk assessment, and approver (deviation record). Use narrowly scoped, documented suppressions only; no blanket suppression.
 - Compiler warnings are enabled at a high level and treated as errors in CI; the toolchain and flags are pinned and documented.
 - Avoid undefined, unspecified, and implementation-defined behavior; use fixed-width integer types, explicit casts, and bounded buffers.
-- No dynamic memory allocation, recursion, or unbounded loops in the control path; avoid it elsewhere unless approved.
+- No dynamic memory allocation, recursion, blocking operations, or unbounded loops in the control path, with no exceptions; avoid them elsewhere unless approved.
 - Validate all inputs and check all return values; do not ignore error codes.
 - Prefer simple, statically analyzable constructs. Keep complexity (cyclomatic, nesting, function size) within project limits.
 - Do not copy third-party or generated code into safety-related paths without license, quality, and MISRA assessment.
@@ -214,8 +214,8 @@ This is a **recommendation**. Check existing repository conventions first and do
 .
 ├── AGENTS.md
 ├── README.md
-├── wiper_control_system_product_requirements.md   # PRD (source of truth)
 ├── docs/
+│   ├── wiper_control_system_product_requirements.md   # PRD (source of truth)
 │   ├── requirements/       # system and software requirements, PR-xxx
 │   ├── architecture/       # system/software architecture and design
 │   ├── safety/             # HARA, safety concept, FMEA/FTA, safety case (ISO 26262)
@@ -269,7 +269,7 @@ The PRD leaves these decisions unresolved:
 - Cybersecurity Assurance Level(s) and TARA outcomes; applicability of UNECE R155/R156.
 - Software update method (flash, OTA, workshop), anti-rollback policy, and failed-update recovery behavior.
 - Target ASPICE capability level.
-- MISRA C / C++ edition, static analysis tools, and deviation approval process.
+- MISRA C++ edition, static analysis tools, and deviation approval process.
 - Data classification, privacy obligations, and key-management approach.
 
 When work depends on one of these, identify the dependency and ask for an engineering decision or record a clearly marked temporary assumption. Do not present an assumption as an approved requirement.
